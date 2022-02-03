@@ -1,5 +1,5 @@
-import { Component } from 'react';
-import { ToastContainer } from 'react-toastify';
+import { useState, useEffect } from 'react';
+import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { fetchImg } from 'services/pixabay-api';
 import { Searchbar } from 'components/Searchbar';
@@ -17,117 +17,84 @@ const Status = {
   REJECTED: 'rejected',
 };
 
-export default class App extends Component {
-  state = {
-    status: Status.IDLE,
-    searchQuery: '',
-    images: [],
-    totalHits: 0,
-    page: 1,
-    error: null,
-    showModal: false,
-    modalImgProps: { url: '', alt: '' },
-  };
+const App = () => {
+  const [status, setStatus] = useState(Status.IDLE);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [images, setImages] = useState([]);
+  const [totalHits, setTotalHits] = useState(0);
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState(null);
+  const [showModal, setShowModal] = useState(false);
+  const [modalImgUrl, setModalImgUrl] = useState('');
+  const [modalImgAlt, setModalImgAlt] = useState('');
 
-  async componentDidUpdate(_, prevState) {
-    const prevQuery = prevState.searchQuery;
-    const nextQuery = this.state.searchQuery;
-
-    if (prevQuery !== nextQuery) {
-      await this.reset();
-      this.setState({ status: Status.PENDING });
-      await this.fetchImages(nextQuery);
+  useEffect(() => {
+    if (searchQuery === '') {
+      return;
     }
-  }
 
-  fetchImages = query => {
-    const { page } = this.state;
-    fetchImg(query, page, PER_PAGE)
+    setStatus(Status.PENDING);
+    fetchImg(searchQuery, page, PER_PAGE)
       .then(({ hits, totalHits }) => {
         if (hits.length === 0) {
           return Promise.reject(new Error('Oops! Nothing found'));
         }
 
-        this.setState(prevState => ({
-          images: [...prevState.images, ...hits],
-          totalHits,
-          status: Status.RESOLVED,
-        }));
+        setImages(state => [...state, ...hits]);
+        setTotalHits(totalHits);
+        setStatus(Status.RESOLVED);
       })
-      .catch(error => this.setState({ error, status: Status.REJECTED }));
-  };
-
-  reset = () => {
-    this.setState({ page: 1, images: [] });
-  };
-
-  handleLoadMoreBtnClick = async () => {
-    const query = this.state.searchQuery;
-    await this.incrementPage();
-    await this.fetchImages(query);
-    this.scrollDown();
-  };
-
-  incrementPage = () => {
-    this.setState(prevState => ({ page: prevState.page + 1 }));
-  };
-
-  scrollDown = () => {
-    setTimeout(() => {
-      window.scrollTo({
-        top: document.body.scrollHeight,
-        left: 0,
-        behavior: 'smooth',
+      .catch(error => {
+        setError(error);
+        setStatus(Status.REJECTED);
       });
-    }, 500);
+  }, [searchQuery, page]);
+
+  const handleSearchFormSubmit = newQuery => {
+    if (searchQuery === newQuery) {
+      toast.info('Please, enter new search query.');
+      return;
+    }
+
+    setImages([]);
+    setPage(1);
+    setSearchQuery(newQuery);
   };
 
-  handleSearchFormSubmit = searchQuery => {
-    this.setState({ searchQuery });
+  const toggleModal = () => {
+    setShowModal(state => !state);
   };
 
-  toggleModal = () => {
-    this.setState(({ showModal }) => ({ showModal: !showModal }));
+  const handleImgClick = ({ largeImageURL: url, tags: alt }) => {
+    setModalImgUrl(url);
+    setModalImgAlt(alt);
+    toggleModal();
   };
 
-  handleImgClick = ({ largeImageURL: url, tags: alt }) => {
-    this.setState({ modalImgProps: { url, alt } });
-    this.toggleModal();
-  };
+  const totalPages = Math.ceil(totalHits / PER_PAGE);
 
-  render() {
-    const {
-      status,
-      images,
-      error,
-      showModal,
-      page,
-      totalHits,
-      modalImgProps: { url, alt },
-    } = this.state;
+  return (
+    <>
+      <Searchbar onSubmit={handleSearchFormSubmit} />
+      {status === 'idle' && <></>}
+      {status === 'pending' && <Loader />}
+      {status === 'rejected' && <ErrorSearch message={error.message} />}
 
-    const totalPages = Math.ceil(totalHits / PER_PAGE);
+      {images.length > 0 && (
+        <ImageGallery images={images} openModal={handleImgClick} />
+      )}
 
-    return (
-      <>
-        <Searchbar onSubmit={this.handleSearchFormSubmit} />
-        {status === 'idle' && <></>}
-        {status === 'pending' && <Loader />}
-        {status === 'rejected' && <ErrorSearch message={error.message} />}
-        {status === 'resolved' && (
-          <>
-            {showModal && (
-              <Modal onClose={this.toggleModal} url={url} alt={alt} />
-            )}
-            <ImageGallery images={images} openModal={this.handleImgClick} />
-            {totalPages !== page && (
-              <LoadMoreBtn handleLoadMore={this.handleLoadMoreBtnClick} />
-            )}
-          </>
-        )}
+      {showModal && (
+        <Modal onClose={toggleModal} url={modalImgUrl} alt={modalImgAlt} />
+      )}
 
-        <ToastContainer />
-      </>
-    );
-  }
-}
+      {status === 'resolved' && totalPages !== page && (
+        <LoadMoreBtn handleLoadMore={() => setPage(state => state + 1)} />
+      )}
+
+      <ToastContainer />
+    </>
+  );
+};
+
+export default App;
